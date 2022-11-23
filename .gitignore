@@ -24,3 +24,4 @@ terraform-provider-kibana
 *.tfstate.*
 .terraform
 registry/
+.vscode/

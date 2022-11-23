@@ -79,10 +79,12 @@ func Provider() *schema.Provider {
 			"kibana_object":            resourceKibanaObject(),
 			"kibana_logstash_pipeline": resourceKibanaLogstashPipeline(),
 			"kibana_copy_object":       resourceKibanaCopyObject(),
+			"kibana_connector":         resourceKibanaConnector(),
 		},
 
 		DataSourcesMap: map[string]*schema.Resource{
-			"kibana_host": dataSourceKibanaHost(),
+			"kibana_host":            dataSourceKibanaHost(),
+			"kibana_connector_types": dataSourceKibanaConnectorTypes(),
 		},
 
 		ConfigureContextFunc: providerConfigure,
