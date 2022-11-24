@@ -29,7 +29,6 @@ func main() {
 
 	opts := &plugin.ServeOpts{
 		ProviderFunc: kb.Provider,
-		ProviderAddr: "registry.terraform.io/disaster37/kibana",
 		Debug:        debugMode,
 	}
 
