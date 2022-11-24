@@ -254,26 +254,26 @@ func resourceKibanaAlertRuleUpdate(ctx context.Context, d *schema.ResourceData, 
 
 // Delete existing alert rule in Kibana
 func resourceKibanaAlertRuleDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	// id := d.Id()
-	// log.Debugf("AlertRule ID: %s", id)
+	id := d.Id()
+	log.Debugf("AlertRule ID: %s", id)
 
-	// client := meta.(*kibana.Client)
+	client := meta.(*kibana.Client)
 
-	// err := client.API.KibanaAlertRule.Delete(id)
-	// if err != nil {
-	// 	if err.(kbapi.APIError).Code == 404 {
-	// 		log.Warnf("AlertRule %s not found - removing from state", id)
-	// 		fmt.Printf("[WARN] AlertRule %s not found - removing from state", id)
-	// 		d.SetId("")
-	// 		return nil
-	// 	}
-	// 	return diag.FromErr(err)
-	// }
+	err := client.API.KibanaAlertRule.Delete(id)
+	if err != nil {
+		if err.(kbapi.APIError).Code == 404 {
+			log.Warnf("AlertRule %s not found - removing from state", id)
+			fmt.Printf("[WARN] AlertRule %s not found - removing from state", id)
+			d.SetId("")
+			return nil
+		}
+		return diag.FromErr(err)
+	}
 
-	// d.SetId("")
+	d.SetId("")
 
-	// log.Infof("Deleted alert rule %s successfully", id)
-	// fmt.Printf("[INFO] Deleted alert rule %s successfully", id)
+	log.Infof("Deleted alert rule %s successfully", id)
+	fmt.Printf("[INFO] Deleted alert rule %s successfully", id)
 	return nil
 
 }
