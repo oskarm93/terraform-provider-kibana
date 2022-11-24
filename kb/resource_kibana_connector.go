@@ -24,9 +24,9 @@ func resourceKibanaConnector() *schema.Resource {
 		UpdateContext: resourceKibanaConnectorUpdate,
 		DeleteContext: resourceKibanaConnectorDelete,
 
-		// Importer: &schema.ResourceImporter{
-		// 	StateContext: schema.ImportStatePassthroughContext,
-		// },
+		Importer: &schema.ResourceImporter{
+			StateContext: schema.ImportStatePassthroughContext,
+		},
 
 		Schema: map[string]*schema.Schema{
 			"name": {
