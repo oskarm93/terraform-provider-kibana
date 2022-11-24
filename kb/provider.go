@@ -80,6 +80,7 @@ func Provider() *schema.Provider {
 			"kibana_logstash_pipeline": resourceKibanaLogstashPipeline(),
 			"kibana_copy_object":       resourceKibanaCopyObject(),
 			"kibana_connector":         resourceKibanaConnector(),
+			"kibana_alert_rule":        resourceKibanaAlertRule(),
 		},
 
 		DataSourcesMap: map[string]*schema.Resource{
@@ -107,7 +108,7 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 		return nil, diag.FromErr(err)
 	}
 
-	// Intialise connexion
+	// Intialise connection
 	cfg := kibana.Config{
 		Address: URL,
 		CAs:     cacertFiles,

@@ -25,3 +25,4 @@ terraform-provider-kibana
 .terraform
 registry/
 .vscode/
+omtest/
