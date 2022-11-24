@@ -15,8 +15,10 @@ import (
 	"reflect"
 
 	kibana "github.com/disaster37/go-kibana-rest/v8"
+	"github.com/disaster37/go-kibana-rest/v8/kbapi"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -56,13 +58,8 @@ func resourceKibanaAlertRule() *schema.Resource {
 				Description: "The schedule specifying when this rule should be run, using one of the available schedule formats.",
 				Type:        schema.TypeMap,
 				Required:    true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"interval": &schema.Schema{
-							Type:     schema.TypeString,
-							Required: true,
-						},
-					},
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
 				},
 			},
 			"throttle": {
@@ -79,6 +76,7 @@ func resourceKibanaAlertRule() *schema.Resource {
 				Description: "Indicates if you want to run the rule on an interval basis after it is created.",
 				Type:        schema.TypeBool,
 				Optional:    true,
+				Default:     true,
 			},
 			"consumer": {
 				Description: "The name of the application that owns the rule. This name has to match the Kibana Feature name, as that dictates the required RBAC privileges.",
@@ -115,48 +113,6 @@ func resourceKibanaAlertRule() *schema.Resource {
 							DiffSuppressFunc: rawJsonEqual,
 						},
 					},
-				},
-			},
-			"created_by": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"created_at": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"updated_by": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"updated_at": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"api_key_owner": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"mute_alert_ids": {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-			},
-			"mute_all": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"scheduled_task_id": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"execution_status": {
-				Type:     schema.TypeMap,
-				Computed: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
 				},
 			},
 		},
@@ -218,27 +174,48 @@ func resourceKibanaAlertRuleRead(ctx context.Context, d *schema.ResourceData, me
 
 	log.Debugf("Get alert rule %s successfully:\n%s", id, alert_rule)
 
-	// if err = d.Set("name", alert_rule.Name); err != nil {
-	// 	return diag.FromErr(err)
-	// }
-	// if err = d.Set("connector_type_id", alert_rule.AlertRuleTypeID); err != nil {
-	// 	return diag.FromErr(err)
-	// }
-	// if err = d.Set("is_preconfigured", alert_rule.IsPreconfigured); err != nil {
-	// 	return diag.FromErr(err)
-	// }
-	// if err = d.Set("is_deprecated", alert_rule.IsDeprecated); err != nil {
-	// 	return diag.FromErr(err)
-	// }
-	// if err = d.Set("is_missing_secrets", alert_rule.IsMissingSecrets); err != nil {
-	// 	return diag.FromErr(err)
-	// }
-	// if err = d.Set("referenced_by_count", alert_rule.ReferencedByCount); err != nil {
-	// 	return diag.FromErr(err)
-	// }
-	// if err = d.Set("config", alert_rule.Config); err != nil {
-	// 	return diag.FromErr(err)
-	// }
+	if err = d.Set("name", alert_rule.Name); err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("tags", alert_rule.Tags); err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("consumer", alert_rule.Consumer); err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("enabled", alert_rule.Enabled); err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("rule_type_id", alert_rule.RuleTypeID); err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("schedule", map[string]string{
+		"interval": alert_rule.Schedule.Interval,
+	}); err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("throttle", alert_rule.Throttle); err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("notify_when", alert_rule.NotifyWhen); err != nil {
+		return diag.FromErr(err)
+	}
+
+	paramsBytes, err := json.Marshal(alert_rule.Params)
+	if err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("params", string(paramsBytes)); err != nil {
+		return diag.FromErr(err)
+	}
+
+	flattenedActions, err := flattenActions(alert_rule.Actions)
+	if err != nil {
+		return diag.FromErr(err)
+	}
+	if err = d.Set("actions", flattenedActions); err != nil {
+		return diag.FromErr(err)
+	}
 
 	log.Infof("Read alert rule %s successfully", id)
 	fmt.Printf("[INFO] Read alert rule %s successfully", id)
@@ -299,6 +276,37 @@ func resourceKibanaAlertRuleDelete(ctx context.Context, d *schema.ResourceData, 
 	// fmt.Printf("[INFO] Deleted alert rule %s successfully", id)
 	return nil
 
+}
+
+func deflateActions(actionArray []map[string]interface{}) ([]kbapi.KibanaAlertRuleAction, error) {
+	actions := []kbapi.KibanaAlertRuleAction{}
+	for _, flatAction := range actionArray {
+		var action kbapi.KibanaAlertRuleAction
+		id := flatAction["id"].(string)
+		action.Id = id
+		group := flatAction["group"].(string)
+		action.Group = group
+		params := flatAction["params"].(string)
+		action.Params = json.RawMessage([]byte(params))
+		actions = append(actions, action)
+	}
+	return actions, nil
+}
+
+func flattenActions(actions []kbapi.KibanaAlertRuleAction) ([]map[string]interface{}, error) {
+	res := make([]map[string]interface{}, 0, len(actions))
+	for _, a := range actions {
+		action := make(map[string]interface{})
+		action["id"] = a.Id
+		action["group"] = a.Group
+		paramsBytes, err := json.Marshal(a.Params)
+		if err != nil {
+			return nil, errors.Wrapf(err, "Failed to marshal Action")
+		}
+		action["params"] = string(paramsBytes)
+		res = append(res, action)
+	}
+	return res, nil
 }
 
 func rawJsonEqual(k, oldValue, newValue string, d *schema.ResourceData) bool {
