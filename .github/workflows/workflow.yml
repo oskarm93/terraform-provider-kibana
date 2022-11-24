@@ -39,53 +39,53 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Setup Elasticsearch / Kibana
-        run: |
-          set -e
-          docker-compose up elasticsearch &
-          echo "Waiting for Elasticsearch availability"
-          until curl -s http://localhost:9200 | grep -q 'missing authentication credentials'; do sleep 30; done;
-          echo "Setting kibana_system password"
-          until curl -s -X POST -u elastic:changeme -H "Content-Type: application/json" http://localhost:9200/_security/user/kibana_system/_password -d "{\"password\":\"changeme\"}" | grep -q "^{}"; do sleep 10; done
-          curl -XPOST -u elastic:changeme http://localhost:9200/_license/start_trial?acknowledge=true
-          docker-compose up kibana &
-          sleep 30
+      # - name: Setup Elasticsearch / Kibana
+      #   run: |
+      #     set -e
+      #     docker-compose up elasticsearch &
+      #     echo "Waiting for Elasticsearch availability"
+      #     until curl -s http://localhost:9200 | grep -q 'missing authentication credentials'; do sleep 30; done;
+      #     echo "Setting kibana_system password"
+      #     until curl -s -X POST -u elastic:changeme -H "Content-Type: application/json" http://localhost:9200/_security/user/kibana_system/_password -d "{\"password\":\"changeme\"}" | grep -q "^{}"; do sleep 10; done
+      #     curl -XPOST -u elastic:changeme http://localhost:9200/_license/start_trial?acknowledge=true
+      #     docker-compose up kibana &
+      #     sleep 30
       - name: Run build
         run: make build
-      - name: Run acceptance tests
-        run: KIBANA_URL="http://localhost:5601" KIBANA_USERNAME="elastic" KIBANA_PASSWORD="changeme" make testacc
-      - uses: codecov/codecov-action@v2
-        with:
-          files: coverage.out
-          flags: unittests
-          fail_ci_if_error: true
+      # - name: Run acceptance tests
+      #   run: KIBANA_URL="http://localhost:5601" KIBANA_USERNAME="elastic" KIBANA_PASSWORD="changeme" make testacc
+      # - uses: codecov/codecov-action@v2
+      #   with:
+      #     files: coverage.out
+      #     flags: unittests
+      #     fail_ci_if_error: true
 
-  goreleaser:
-    needs:
-      - build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Unshallow
-        run: git fetch --prune --unshallow
-      - name: Set up Go
-        uses: actions/setup-go@v3
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v5
-        id: import_gpg
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.PASSPHRASE }}
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v3.2.0
-        with:
-          version: latest
-          args: release --rm-dist
-        env:
-          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
-          # GitHub sets this automatically
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # goreleaser:
+  #   needs:
+  #     - build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v3
+  #     - name: Unshallow
+  #       run: git fetch --prune --unshallow
+  #     - name: Set up Go
+  #       uses: actions/setup-go@v3
+  #       with:
+  #         go-version-file: go.mod
+  #         cache: true
+  #     - name: Import GPG key
+  #       uses: crazy-max/ghaction-import-gpg@v5
+  #       id: import_gpg
+  #       with:
+  #         gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+  #         passphrase: ${{ secrets.PASSPHRASE }}
+  #     - name: Run GoReleaser
+  #       uses: goreleaser/goreleaser-action@v3.2.0
+  #       with:
+  #         version: latest
+  #         args: release --rm-dist
+  #       env:
+  #         GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+  #         # GitHub sets this automatically
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
