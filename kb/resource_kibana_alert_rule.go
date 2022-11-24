@@ -1,3 +1,6 @@
+// Big props to the authors of this repo for doing a lot of the legwork
+// https://github.com/qonto/terraform-provider-kibana/blob/main/internal/provider/resource_alert_rule.go
+
 // Manage alert rules in Kibana
 // API documentation: https://www.elastic.co/guide/en/kibana/current/alerting-apis.html
 // Supported version:
@@ -7,10 +10,11 @@ package kb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 
 	kibana "github.com/disaster37/go-kibana-rest/v8"
-	kbapi "github.com/disaster37/go-kibana-rest/v8/kbapi"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	log "github.com/sirupsen/logrus"
@@ -30,59 +34,88 @@ func resourceKibanaAlertRule() *schema.Resource {
 
 		Schema: map[string]*schema.Schema{
 			"name": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"consumer": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Default:  "alerts",
+				Description: "A name to reference and search.",
+				Type:        schema.TypeString,
+				Required:    true,
 			},
 			"tags": {
-				Type:     schema.TypeList,
-				Optional: true,
+				Description: "A list of keywords to reference and search.",
+				Type:        schema.TypeList,
+				Optional:    true,
 				Elem: &schema.Schema{
 					Type: schema.TypeString,
 				},
-				Default: nil,
-				// Default: []string{},
-			},
-			"throttle": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Default:  nil,
-			},
-			"enabled": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Default:  true,
-			},
-			"schedule": {
-				Type:     schema.TypeMap,
-				Required: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
-			},
-			"params": {
-				Type:     schema.TypeString,
-				Required: true,
-				// DiffSuppressFunc: rawJsonEqual,
-				// Elem:     &schema.Schema{
-				// Type: schema.TypeString,
-				// },
-			},
-			"actions": {
-				Type:     schema.TypeList,
-				Optional: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeMap,
-				},
-				Default: nil, //[]kbapi.KibanaAlertRuleAction{},
 			},
 			"rule_type_id": {
-				Type:     schema.TypeString,
-				Required: true,
+				Description: "The ID of the rule type that you want to call when the rule is scheduled to run.",
+				Type:        schema.TypeString,
+				Required:    true,
+				ForceNew:    true,
+			},
+			"schedule": {
+				Description: "The schedule specifying when this rule should be run, using one of the available schedule formats.",
+				Type:        schema.TypeMap,
+				Required:    true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"interval": &schema.Schema{
+							Type:     schema.TypeString,
+							Required: true,
+						},
+					},
+				},
+			},
+			"throttle": {
+				Description: "How often this rule should fire the same actions. This will prevent the rule from sending out the same notification over and over. For example, if a rule with a schedule of 1 minute stays in a triggered state for 90 minutes, setting a throttle of 10m or 1h will prevent it from sending 90 notifications during this period.",
+				Type:        schema.TypeString,
+				Optional:    true,
+			},
+			"notify_when": {
+				Description: "The condition for throttling the notification: onActionGroupChange, onActiveAlert, or onThrottleInterval.",
+				Type:        schema.TypeString,
+				Required:    true,
+			},
+			"enabled": {
+				Description: "Indicates if you want to run the rule on an interval basis after it is created.",
+				Type:        schema.TypeBool,
+				Optional:    true,
+			},
+			"consumer": {
+				Description: "The name of the application that owns the rule. This name has to match the Kibana Feature name, as that dictates the required RBAC privileges.",
+				Type:        schema.TypeString,
+				Required:    true,
+				ForceNew:    true,
+			},
+			"params": {
+				Description:      "The parameters to pass to the rule type executor params value. This will also validate against the rule type params validator, if defined.",
+				Type:             schema.TypeString,
+				Required:         true,
+				DiffSuppressFunc: rawJsonEqual,
+			},
+			"actions": {
+				Description: "An array of the following action objects.",
+				Type:        schema.TypeList,
+				Optional:    true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"id": {
+							Description: "The ID of the connector saved object to execute.",
+							Type:        schema.TypeString,
+							Required:    true,
+						},
+						"group": {
+							Description: "Grouping actions is recommended for escalations for different types of alerts. If you don’t need this, set this value to default.",
+							Type:        schema.TypeString,
+							Required:    true,
+						},
+						"params": {
+							Description:      "The map to the params that the connector type will receive. ` params` are handled as Mustache templates and passed a default set of context.",
+							Type:             schema.TypeString,
+							Required:         true,
+							DiffSuppressFunc: rawJsonEqual,
+						},
+					},
+				},
 			},
 			"created_by": {
 				Type:     schema.TypeString,
@@ -103,10 +136,6 @@ func resourceKibanaAlertRule() *schema.Resource {
 			"api_key_owner": {
 				Type:     schema.TypeString,
 				Computed: true,
-			},
-			"notify_when": {
-				Type:     schema.TypeString,
-				Required: true,
 			},
 			"mute_alert_ids": {
 				Type:     schema.TypeList,
@@ -136,32 +165,32 @@ func resourceKibanaAlertRule() *schema.Resource {
 
 // Create new alert rule in Kibana
 func resourceKibanaAlertRuleCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	client := meta.(*kibana.Client)
-	createParams := &kbapi.KibanaAlertRuleCreateParams{
-		Name:     d.Get("name").(string),
-		Consumer: d.Get("consumer").(string),
-		Tags:     []string{},
-		// Tags:       ([]string)(d.Get("tags").([]interface{}),
-		Throttle: d.Get("throttle").(string),
-		Enabled:  d.Get("enabled").(bool),
-		Schedule: kbapi.KibanaAlertRuleSchedule{
-			Interval: "1m",
-		}, // (kbapi.KibanaAlertRuleSchedule)(d.Get("schedule").(map[string]interface{})),
-		Params:     d.Get("params").(kbapi.KibanaAlertRuleParams),
-		RuleTypeID: d.Get("rule_type_id").(string),
-		NotifyWhen: d.Get("notify_when").(string),
-		Actions:    d.Get("actions").([]kbapi.KibanaAlertRuleAction),
-	}
+	// client := meta.(*kibana.Client)
+	// createParams := &kbapi.KibanaAlertRuleCreateParams{
+	// 	Name:     d.Get("name").(string),
+	// 	Consumer: d.Get("consumer").(string),
+	// 	Tags:     []string{},
+	// 	// Tags:       ([]string)(d.Get("tags").([]interface{}),
+	// 	Throttle: d.Get("throttle").(string),
+	// 	Enabled:  d.Get("enabled").(bool),
+	// 	Schedule: kbapi.KibanaAlertRuleSchedule{
+	// 		Interval: "1m",
+	// 	}, // (kbapi.KibanaAlertRuleSchedule)(d.Get("schedule").(map[string]interface{})),
+	// 	Params:     d.Get("params").(kbapi.KibanaAlertRuleParams),
+	// 	RuleTypeID: d.Get("rule_type_id").(string),
+	// 	NotifyWhen: d.Get("notify_when").(string),
+	// 	Actions:    d.Get("actions").([]kbapi.KibanaAlertRuleAction),
+	// }
 
-	alertRule, err := client.API.KibanaAlertRule.Create(createParams)
-	if err != nil {
-		return diag.FromErr(err)
-	}
+	// alertRule, err := client.API.KibanaAlertRule.Create(createParams)
+	// if err != nil {
+	// 	return diag.FromErr(err)
+	// }
 
-	d.SetId(alertRule.ID)
+	d.SetId("62807b50-6c0f-11ed-a016-1f59997756ad") // alertRule.ID)
 
-	log.Infof("Created alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
-	fmt.Printf("[INFO] Created alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
+	// log.Infof("Created alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
+	// fmt.Printf("[INFO] Created alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
 
 	return resourceKibanaAlertRuleRead(ctx, d, meta)
 }
@@ -270,4 +299,15 @@ func resourceKibanaAlertRuleDelete(ctx context.Context, d *schema.ResourceData, 
 	// fmt.Printf("[INFO] Deleted alert rule %s successfully", id)
 	return nil
 
+}
+
+func rawJsonEqual(k, oldValue, newValue string, d *schema.ResourceData) bool {
+	var oldInterface, newInterface interface{}
+	if err := json.Unmarshal([]byte(oldValue), &oldInterface); err != nil {
+		return false
+	}
+	if err := json.Unmarshal([]byte(newValue), &newInterface); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(oldInterface, newInterface)
 }
