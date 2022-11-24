@@ -67,6 +67,4 @@ require (
 	google.golang.org/protobuf v1.28.1 // indirect
 )
 
-replace (
-	"github.com/disaster37/go-kibana-rest/v8" => "../go-kibana-rest"
-)
+replace github.com/disaster37/go-kibana-rest/v8 => github.com/oskarm93/go-kibana-rest/v8 new-alert-apis
