@@ -121,32 +121,51 @@ func resourceKibanaAlertRule() *schema.Resource {
 
 // Create new alert rule in Kibana
 func resourceKibanaAlertRuleCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	// client := meta.(*kibana.Client)
-	// createParams := &kbapi.KibanaAlertRuleCreateParams{
-	// 	Name:     d.Get("name").(string),
-	// 	Consumer: d.Get("consumer").(string),
-	// 	Tags:     []string{},
-	// 	// Tags:       ([]string)(d.Get("tags").([]interface{}),
-	// 	Throttle: d.Get("throttle").(string),
-	// 	Enabled:  d.Get("enabled").(bool),
-	// 	Schedule: kbapi.KibanaAlertRuleSchedule{
-	// 		Interval: "1m",
-	// 	}, // (kbapi.KibanaAlertRuleSchedule)(d.Get("schedule").(map[string]interface{})),
-	// 	Params:     d.Get("params").(kbapi.KibanaAlertRuleParams),
-	// 	RuleTypeID: d.Get("rule_type_id").(string),
-	// 	NotifyWhen: d.Get("notify_when").(string),
-	// 	Actions:    d.Get("actions").([]kbapi.KibanaAlertRuleAction),
-	// }
+	client := meta.(*kibana.Client)
+	createParams := &kbapi.KibanaAlertRuleCreateParams{
+		Name:       d.Get("name").(string),
+		Consumer:   d.Get("consumer").(string),
+		Throttle:   d.Get("throttle").(string),
+		RuleTypeID: d.Get("rule_type_id").(string),
+		NotifyWhen: d.Get("notify_when").(string),
+		Enabled:    d.Get("enabled").(bool),
+	}
 
-	// alertRule, err := client.API.KibanaAlertRule.Create(createParams)
-	// if err != nil {
-	// 	return diag.FromErr(err)
-	// }
+	tags := d.Get("tags").([]interface{})
+	for _, tag := range tags {
+		createParams.Tags = append(createParams.Tags, tag.(string))
+	}
 
-	d.SetId("62807b50-6c0f-11ed-a016-1f59997756ad") // alertRule.ID)
+	schedule := d.Get("schedule").(map[string]interface{})
+	scheduleInterval := schedule["interval"].(string)
+	createParams.Schedule = kbapi.KibanaAlertRuleSchedule{
+		Interval: scheduleInterval,
+	}
 
-	// log.Infof("Created alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
-	// fmt.Printf("[INFO] Created alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
+	params := d.Get("params").(string)
+	createParams.Params = json.RawMessage([]byte(params))
+
+	actionsInterface := d.Get("actions").([]interface{})
+	actionsList := make([]map[string]interface{}, 0, len(actionsInterface))
+	for _, action := range actionsInterface {
+		actionsList = append(actionsList, action.(map[string]interface{}))
+	}
+
+	var err error
+	createParams.Actions, err = deflateActions(actionsList)
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	alertRule, err := client.API.KibanaAlertRule.Create(createParams)
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	d.SetId(alertRule.ID)
+
+	log.Infof("Created alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
+	fmt.Printf("[INFO] Created alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
 
 	return resourceKibanaAlertRuleRead(ctx, d, meta)
 }
@@ -225,29 +244,59 @@ func resourceKibanaAlertRuleRead(ctx context.Context, d *schema.ResourceData, me
 
 // Update existing alert rule in Kibana
 func resourceKibanaAlertRuleUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	// id := d.Id()
-	// name := d.Get("name").(string)
-	// config := (kbapi.KibanaAlertRuleConfig)(d.Get("config").(map[string]interface{}))
-	// secrets := (kbapi.KibanaAlertRuleSecrets)(d.Get("secrets").(map[string]interface{}))
+	id := d.Id()
+	updateParams := &kbapi.KibanaAlertRuleUpdateParams{
+		Name:       d.Get("name").(string),
+		Throttle:   d.Get("throttle").(string),
+		NotifyWhen: d.Get("notify_when").(string),
+	}
 
-	// client := meta.(*kibana.Client)
+	tags := d.Get("tags").([]interface{})
+	for _, tag := range tags {
+		updateParams.Tags = append(updateParams.Tags, tag.(string))
+	}
 
-	// createParams := &kbapi.KibanaAlertRuleCreateParams{
-	// 	Name:    name,
-	// 	Config:  config,
-	// 	Secrets: secrets,
-	// }
+	schedule := d.Get("schedule").(map[string]interface{})
+	scheduleInterval := schedule["interval"].(string)
+	updateParams.Schedule = kbapi.KibanaAlertRuleSchedule{
+		Interval: scheduleInterval,
+	}
 
-	// connector, err := client.API.KibanaAlertRule.Update(id, createParams)
-	// if err != nil {
-	// 	return diag.FromErr(err)
-	// }
+	params := d.Get("params").(string)
+	updateParams.Params = json.RawMessage([]byte(params))
 
-	// d.SetId(connector.ID)
-	// d.Set("secrets", createParams.Secrets)
+	actionsInterface := d.Get("actions").([]interface{})
+	actionsList := make([]map[string]interface{}, 0, len(actionsInterface))
+	for _, action := range actionsInterface {
+		actionsList = append(actionsList, action.(map[string]interface{}))
+	}
 
-	// log.Infof("Updated alert rule %s (%s) successfully", connector.ID, name)
-	// fmt.Printf("[INFO] Updated alert rule %s (%s) successfully", connector.ID, name)
+	var err error
+	updateParams.Actions, err = deflateActions(actionsList)
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	client := meta.(*kibana.Client)
+
+	alertRule, err := client.API.KibanaAlertRule.Update(id, updateParams)
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	if d.HasChange("enabled") {
+		if enabled := d.Get("enabled").(bool); enabled {
+			err = client.API.KibanaAlertRule.Enable(id)
+		} else {
+			err = client.API.KibanaAlertRule.Disable(id)
+		}
+		if err != nil {
+			return diag.FromErr(err)
+		}
+	}
+
+	log.Infof("Updated alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
+	fmt.Printf("[INFO] Updated alert rule %s (%s) successfully", alertRule.ID, alertRule.Name)
 
 	return resourceKibanaAlertRuleRead(ctx, d, meta)
 }
